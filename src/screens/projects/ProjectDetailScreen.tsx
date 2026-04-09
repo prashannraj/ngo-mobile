@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiClient } from '../../api/client';
 import { formatDateTimeYmdHms } from '../../lib/date';
@@ -8,6 +8,9 @@ import { useAuth } from '../../context/AuthContext';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import { AppButton, AppCard, AppHeader, AppInput, EmptyState, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { radius, spacing, typography } from '../../theme/tokens';
 
 async function fetchProject(id: string | number) {
   const res = await apiClient.get(`/projects/${id}`);
@@ -32,6 +35,7 @@ export default function ProjectDetailScreen() {
   const { id } = route.params as { id: string | number };
 
   const { user, token } = useAuth();
+  const qc = useQueryClient();
   const roles = (user?.roles ?? []) as string[];
   const userEmployeeId = user?.employee?.id ? Number(user.employee.id) : null;
 
@@ -46,11 +50,8 @@ export default function ProjectDetailScreen() {
   const [completeTaskId, setCompleteTaskId] = useState<number | null>(null);
   const [progress, setProgress] = useState<string>('100');
   const [attachment, setAttachment] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-
   const [attachmentsTaskId, setAttachmentsTaskId] = useState<number | null>(null);
-  const [taskAttachments, setTaskAttachments] = useState<any[]>([]);
-  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [downloadBusyId, setDownloadBusyId] = useState<number | null>(null);
 
   const downloadAttachment = async (taskId: number, attachmentId: number, originalName?: string) => {
     if (!token) {
@@ -83,17 +84,13 @@ export default function ProjectDetailScreen() {
 
   const openAttachments = async (taskId: number) => {
     setAttachmentsTaskId(taskId);
-    setAttachmentsLoading(true);
-    try {
-      const task = await fetchTask(taskId);
-      const atts = (task?.attachments ?? []) as any[];
-      setTaskAttachments(atts);
-    } catch (e: any) {
-      alert(e?.response?.data?.message || e?.message || 'Failed to load attachments');
-    } finally {
-      setAttachmentsLoading(false);
-    }
   };
+
+  const taskQuery = useQuery({
+    queryKey: ['taskDetail', attachmentsTaskId],
+    queryFn: () => fetchTask(Number(attachmentsTaskId)),
+    enabled: !!attachmentsTaskId,
+  });
 
   const pickEvidence = async () => {
     const res = await DocumentPicker.getDocumentAsync({
@@ -111,12 +108,12 @@ export default function ProjectDetailScreen() {
     }
   };
 
-  const submitComplete = async () => {
-    if (!completeTaskId) return;
-    setBusy(true);
-    try {
+  const completeTask = useMutation({
+    mutationFn: async () => {
+      if (!completeTaskId) return;
+      const p = Math.max(0, Math.min(100, Number(progress || 0)));
       const form = new FormData();
-      form.append('progress', progress);
+      form.append('progress', String(p));
 
       if (attachment) {
         form.append('attachment', {
@@ -129,185 +126,193 @@ export default function ProjectDetailScreen() {
       await apiClient.post(`/tasks/${completeTaskId}/complete`, form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-
+    },
+    onSuccess: async () => {
       setCompleteTaskId(null);
       setProgress('100');
       setAttachment(null);
-      await projectQuery.refetch();
-    } catch (e: any) {
-      alert(e.response?.data?.message || e.message || 'Failed to complete task');
-    } finally {
-      setBusy(false);
-    }
-  };
+      await qc.invalidateQueries({ queryKey: ['projectDetail', id] });
+    },
+    onError: (e: any) => alert(e.response?.data?.message || e.message || 'Failed to complete task'),
+  });
 
   const closeAttachments = () => {
     setAttachmentsTaskId(null);
-    setTaskAttachments([]);
   };
 
   const isProjectLoading = projectQuery.isLoading;
 
-  const back = () => navigation.goBack();
-
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Pressable onPress={back}>
-            <Text style={{ color: '#2563EB', fontWeight: '800' }}>Back</Text>
-          </Pressable>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 22, fontWeight: '900' }}>
-            {project?.name ?? 'Project'}
-          </Text>
-        </View>
-
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title={project?.name ?? 'Project'} />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
         {projectQuery.isLoading ? (
-          <View style={{ marginTop: 16 }}>
-            <ActivityIndicator color="#2563EB" />
-          </View>
-        ) : null}
+          <LoadingState />
+        ) : !project ? (
+          <EmptyState title="Project not found" subtitle="Please go back and try again." />
+        ) : (
+          <>
+            <Text style={[typography.muted]}>
+              Code: {project?.code ?? '-'} | Status: {String(project?.status ?? '-').toUpperCase()}
+            </Text>
 
-        <Text style={{ marginTop: 8, color: '#64748B', fontWeight: '700' }}>
-          Code: {project?.code ?? '-'} | Status: {String(project?.status ?? '-').toUpperCase()}
-        </Text>
+            <View style={{ marginTop: spacing.lg }}>
+              <Text style={[typography.h2]}>Tasks</Text>
+              {tasks.length === 0 ? (
+                <EmptyState title="No tasks found" subtitle="This project has no tasks yet." />
+              ) : (
+                <View style={{ marginTop: spacing.sm }}>
+                  {tasks.map((t: any) => {
+                    const taskAssignedToId = t?.assignedTo?.id ? Number(t.assignedTo.id) : null;
+                    const assignedToMe = userEmployeeId != null && taskAssignedToId != null && userEmployeeId === taskAssignedToId;
+                    const canComplete = canCompleteTask(roles, userEmployeeId, taskAssignedToId);
 
-        <View style={{ marginTop: 16 }}>
-          <Text style={{ fontSize: 16, fontWeight: '900' }}>Tasks</Text>
-          {tasks.length === 0 ? (
-            <Text style={{ marginTop: 10, color: '#6B7280', fontWeight: '700' }}>No tasks found.</Text>
-          ) : (
-            <View style={{ marginTop: 10 }}>
-              {tasks.map((t: any) => {
-                const taskAssignedToId = t?.assignedTo?.id ? Number(t.assignedTo.id) : null;
-                const assignedToMe = userEmployeeId != null && taskAssignedToId != null && userEmployeeId === taskAssignedToId;
-                const canComplete = canCompleteTask(roles, userEmployeeId, taskAssignedToId);
+                    return (
+                      <AppCard key={t.id} style={{ marginBottom: spacing.sm }}>
+                        <Text style={{ fontWeight: '900', color: colors.text }}>{t.title ?? 'Task'}</Text>
+                        <Text style={[typography.muted, { marginTop: spacing.xs }]}>
+                          Assigned:{' '}
+                          {t.assignedTo ? t.assignedTo.name ?? `${t.assignedTo.first_name ?? ''} ${t.assignedTo.last_name ?? ''}` : '-'}
+                        </Text>
+                        <Text style={[typography.muted, { marginTop: spacing.xs }]}>
+                          Due: {t.due_date ? formatDateTimeYmdHms(t.due_date) : '-'}
+                        </Text>
+                        <Text style={[typography.muted, { marginTop: spacing.xs }]}>
+                          Status: {String(t.status ?? '-').toUpperCase()} | Progress: {t.progress ?? '-'}
+                        </Text>
 
-                return (
-                  <View
-                    key={t.id}
-                    style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 10 }}
-                  >
-                    <Text style={{ fontWeight: '900', color: '#0F172A' }}>{t.title ?? 'Task'}</Text>
-                    <Text style={{ marginTop: 6, color: '#64748B', fontWeight: '700' }}>
-                      Assigned: {t.assignedTo ? t.assignedTo.name ?? `${t.assignedTo.first_name ?? ''} ${t.assignedTo.last_name ?? ''}` : '-'}
-                    </Text>
-                    <Text style={{ marginTop: 6, color: '#64748B' }}>Due: {t.due_date ? formatDateTimeYmdHms(t.due_date) : '-'}</Text>
-                    <Text style={{ marginTop: 6, color: '#64748B' }}>
-                      Status: {String(t.status ?? '-').toUpperCase()} | Progress: {t.progress ?? '-'}
-                    </Text>
+                        <View style={{ flexDirection: 'row', gap: 10, marginTop: spacing.md }}>
+                          {assignedToMe ? (
+                            <AppButton title="Files" variant="soft" onPress={() => openAttachments(Number(t.id))} style={{ flex: 1 }} />
+                          ) : (
+                            <View style={{ flex: 1 }} />
+                          )}
 
-                    <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                      {assignedToMe ? (
-                        <Pressable
-                          onPress={() => openAttachments(Number(t.id))}
-                          style={{ flex: 1, backgroundColor: '#EEF2FF', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginRight: 8 }}
-                        >
-                          <Text style={{ color: '#3730A3', fontWeight: '900' }}>Files</Text>
-                        </Pressable>
-                      ) : null}
-
-                      {canComplete && t.status !== 'completed' ? (
-                        <Pressable
-                          onPress={() => {
-                            setCompleteTaskId(Number(t.id));
-                            setProgress(String(t.progress ?? 100));
-                            setAttachment(null);
-                          }}
-                          style={{ flex: 1, backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: 1 }}
-                        >
-                          <Text style={{ color: '#fff', fontWeight: '900' }}>Complete</Text>
-                        </Pressable>
-                      ) : (
-                        <View style={{ flex: 1 }} />
-                      )}
-                    </View>
-                  </View>
-                );
-              })}
+                          {canComplete && t.status !== 'completed' ? (
+                            <AppButton
+                              title="Complete"
+                              onPress={() => {
+                                setCompleteTaskId(Number(t.id));
+                                setProgress(String(t.progress ?? 100));
+                                setAttachment(null);
+                              }}
+                              style={{ flex: 1 }}
+                            />
+                          ) : (
+                            <View style={{ flex: 1 }} />
+                          )}
+                        </View>
+                      </AppCard>
+                    );
+                  })}
+                </View>
+              )}
             </View>
-          )}
-        </View>
+          </>
+        )}
+      </ScrollView>
 
-        {/* Complete Task Modal (simple inline block) */}
-        {completeTaskId ? (
-          <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9' }}>
-            <Text style={{ fontWeight: '900', fontSize: 16 }}>Complete Task #{completeTaskId}</Text>
+      <Modal transparent visible={!!completeTaskId} animationType="fade" onRequestClose={() => setCompleteTaskId(null)}>
+        <Pressable
+          onPress={() => setCompleteTaskId(null)}
+          style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', padding: spacing.lg, justifyContent: 'center' }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{ backgroundColor: '#fff', borderRadius: radius.xl, overflow: 'hidden' }}
+          >
+            <View style={{ padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+              <Text style={[typography.h2]}>Complete Task #{completeTaskId ?? ''}</Text>
+              <Text style={[typography.muted, { marginTop: spacing.xs }]}>Update progress and optionally attach evidence.</Text>
+            </View>
+            <View style={{ padding: spacing.lg }}>
+              <AppInput
+                label="Progress (0-100)"
+                value={progress}
+                onChangeText={setProgress}
+                keyboardType="numeric"
+                placeholder="100"
+              />
 
-            <Text style={{ marginTop: 10, fontWeight: '900' }}>Progress (0-100)</Text>
-            <TextInput
-              value={progress}
-              onChangeText={(t) => setProgress(t)}
-              keyboardType="numeric"
-              style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
-            />
+              <AppButton
+                title={attachment ? `Selected: ${attachment.name}` : 'Pick evidence file (optional)'}
+                variant="outline"
+                onPress={pickEvidence}
+                disabled={completeTask.isPending}
+                style={{ marginTop: spacing.md }}
+              />
 
-            <Pressable
-              onPress={pickEvidence}
-              disabled={busy}
-              style={{ marginTop: 14, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
-            >
-              <Text style={{ color: '#2563EB', fontWeight: '900' }}>{attachment ? `Selected: ${attachment.name}` : 'Pick evidence file (optional)'}</Text>
-            </Pressable>
+              <AppButton
+                title={completeTask.isPending ? 'Submitting...' : 'Submit completion'}
+                variant="primary"
+                onPress={() => completeTask.mutate()}
+                loading={completeTask.isPending}
+                style={{ marginTop: spacing.md }}
+              />
+              <AppButton
+                title="Cancel"
+                variant="outline"
+                onPress={() => setCompleteTaskId(null)}
+                disabled={completeTask.isPending}
+                style={{ marginTop: spacing.md }}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
-            <Pressable
-              onPress={submitComplete}
-              disabled={busy}
-              style={{ marginTop: 14, backgroundColor: '#16A34A', borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: busy ? 0.7 : 1 }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'Submitting...' : 'Submit completion'}</Text>
-            </Pressable>
-
-            <Pressable onPress={() => setCompleteTaskId(null)} disabled={busy} style={{ marginTop: 10, alignItems: 'center' }}>
-              <Text style={{ color: '#2563EB', fontWeight: '800' }}>Cancel</Text>
-            </Pressable>
-          </View>
-        ) : null}
-
-        {/* Attachments Modal (simple inline block) */}
-        {attachmentsTaskId ? (
-          <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Text style={{ fontWeight: '900', fontSize: 16, flex: 1 }}>Files for Task #{attachmentsTaskId}</Text>
-              <Pressable onPress={closeAttachments}>
-                <Text style={{ color: '#2563EB', fontWeight: '900' }}>Close</Text>
-              </Pressable>
+      <Modal transparent visible={!!attachmentsTaskId} animationType="fade" onRequestClose={closeAttachments}>
+        <Pressable
+          onPress={closeAttachments}
+          style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', padding: spacing.lg, justifyContent: 'center' }}
+        >
+          <Pressable
+            onPress={() => undefined}
+            style={{ backgroundColor: '#fff', borderRadius: radius.xl, overflow: 'hidden', maxHeight: '80%' }}
+          >
+            <View style={{ padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={[typography.h2, { flex: 1 }]}>Files</Text>
+              <AppButton title="Close" variant="outline" onPress={closeAttachments} />
             </View>
 
-            {attachmentsLoading ? (
-              <View style={{ marginTop: 10 }}>
-                <ActivityIndicator color="#2563EB" />
-              </View>
-            ) : taskAttachments.length === 0 ? (
-              <Text style={{ marginTop: 12, color: '#6B7280', fontWeight: '700' }}>No attachments found.</Text>
+            {taskQuery.isLoading ? (
+              <LoadingState />
             ) : (
-              <View style={{ marginTop: 10 }}>
-                {taskAttachments.map((a: any) => (
-                  <View
-                    key={a.id}
-                    style={{ borderWidth: 1, borderColor: '#F1F5F9', borderRadius: 12, padding: 12, marginBottom: 10, backgroundColor: '#F9FAFB' }}
-                  >
-                    <Text style={{ fontWeight: '900', color: '#0F172A' }} numberOfLines={1}>
-                      {a.original_name || `Attachment ${a.id}`}
-                    </Text>
-                    <Text style={{ marginTop: 6, color: '#64748B' }}>
-                      Size: {a.size_bytes ? `${a.size_bytes} bytes` : '-'} | MIME: {a.mime_type ?? '-'}
-                    </Text>
+              <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+                {((taskQuery.data?.attachments ?? []) as any[]).length === 0 ? (
+                  <EmptyState title="No attachments" subtitle="No files were uploaded for this task." />
+                ) : (
+                  ((taskQuery.data?.attachments ?? []) as any[]).map((a: any) => (
+                    <AppCard key={a.id} style={{ marginBottom: spacing.sm, backgroundColor: '#F8FAFC' }}>
+                      <Text style={{ fontWeight: '900', color: colors.text }} numberOfLines={1}>
+                        {a.original_name || `Attachment ${a.id}`}
+                      </Text>
+                      <Text style={[typography.muted, { marginTop: spacing.xs }]}>
+                        Size: {a.size_bytes ? `${a.size_bytes} bytes` : '-'} | MIME: {a.mime_type ?? '-'}
+                      </Text>
 
-                    <Pressable
-                      onPress={() => downloadAttachment(Number(attachmentsTaskId), Number(a.id), a.original_name)}
-                      style={{ marginTop: 10, backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 10, alignItems: 'center' }}
-                    >
-                      <Text style={{ color: '#fff', fontWeight: '900' }}>Download</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
+                      <AppButton
+                        title={downloadBusyId === a.id ? 'Downloading...' : 'Download'}
+                        onPress={async () => {
+                          setDownloadBusyId(a.id);
+                          try {
+                            await downloadAttachment(Number(attachmentsTaskId), Number(a.id), a.original_name);
+                          } finally {
+                            setDownloadBusyId(null);
+                          }
+                        }}
+                        loading={downloadBusyId === a.id}
+                        style={{ marginTop: spacing.md }}
+                      />
+                    </AppCard>
+                  ))
+                )}
+              </ScrollView>
             )}
-          </View>
-        ) : null}
-      </View>
-    </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }
 

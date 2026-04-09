@@ -1,5 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import HrHomeScreen from './HrHomeScreen';
 import LeavesScreen from './LeavesScreen';
 import TimesheetsScreen from './TimesheetsScreen';
 import WfhScreen from './WfhScreen';
@@ -7,6 +8,7 @@ import TravelScreen from './TravelScreen';
 import AppraisalsScreen from './AppraisalsScreen';
 
 type HRStackParamList = {
+  HRHome: undefined;
   Leaves: undefined;
   Timesheets: undefined;
   Wfh: undefined;
@@ -18,7 +20,8 @@ const HRStack = createNativeStackNavigator<HRStackParamList>();
 
 export default function HRStackNavigator() {
   return (
-    <HRStack.Navigator initialRouteName="Leaves" screenOptions={{ headerShown: false }}>
+    <HRStack.Navigator initialRouteName="HRHome" screenOptions={{ headerShown: false }}>
+      <HRStack.Screen name="HRHome" component={HrHomeScreen} />
       <HRStack.Screen name="Leaves" component={LeavesScreen} />
       <HRStack.Screen name="Timesheets" component={TimesheetsScreen} />
       <HRStack.Screen name="Wfh" component={WfhScreen} />

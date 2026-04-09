@@ -1,12 +1,15 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { apiClient } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeYmdHms } from '../../lib/date';
+import { AppButton, AppCard, AppHeader, AppInput, EmptyState, ErrorBanner, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { radius, spacing, typography } from '../../theme/tokens';
 
 const travelSchema = z.object({
   destination: z.string().min(1),
@@ -25,6 +28,7 @@ async function fetchTravel() {
 
 export default function TravelScreen() {
   const { user } = useAuth();
+  const qc = useQueryClient();
   const roles = (user?.roles ?? []) as string[];
 
   const isEmployee = roles.includes('Employee');
@@ -32,7 +36,7 @@ export default function TravelScreen() {
 
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [settleLoadingId, setSettleLoadingId] = useState<number | null>(null);
+  const [settleForId, setSettleForId] = useState<number | null>(null);
   const [settleValue, setSettleValue] = useState<string>('0');
 
   const travelQuery = useQuery({ queryKey: ['travelRequests'], queryFn: fetchTravel });
@@ -43,10 +47,8 @@ export default function TravelScreen() {
     defaultValues: { destination: '', purpose: '', start_date: '', end_date: '', estimated_budget: '0' },
   });
 
-  const onSubmit = async (values: TravelValues) => {
-    setError(null);
-    setSubmitLoading(true);
-    try {
+  const createTravel = useMutation({
+    mutationFn: async (values: TravelValues) => {
       await apiClient.post('/travel-requests', {
         destination: values.destination,
         purpose: values.purpose,
@@ -54,127 +56,184 @@ export default function TravelScreen() {
         end_date: values.end_date,
         estimated_budget: values.estimated_budget ? Number(values.estimated_budget) : 0,
       });
+    },
+    onSuccess: async () => {
       form.reset({ destination: '', purpose: '', start_date: '', end_date: '', estimated_budget: '0' });
-      await travelQuery.refetch();
-    } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to submit travel request');
-    } finally {
-      setSubmitLoading(false);
-    }
-  };
+      await qc.invalidateQueries({ queryKey: ['travelRequests'] });
+    },
+    onError: (e: any) => setError(e.response?.data?.message || 'Failed to submit travel request'),
+    onSettled: () => setSubmitLoading(false),
+  });
 
-  const approve = async (id: number) => {
-    await apiClient.post(`/travel-requests/${id}/approve`);
-    await travelQuery.refetch();
-  };
+  const approve = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.post(`/travel-requests/${id}/approve`);
+    },
+    onSuccess: async () => qc.invalidateQueries({ queryKey: ['travelRequests'] }),
+    onError: (e: any) => setError(e.response?.data?.message || 'Failed to approve'),
+  });
 
-  const reject = async (id: number) => {
-    await apiClient.post(`/travel-requests/${id}/reject`);
-    await travelQuery.refetch();
-  };
+  const reject = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.post(`/travel-requests/${id}/reject`);
+    },
+    onSuccess: async () => qc.invalidateQueries({ queryKey: ['travelRequests'] }),
+    onError: (e: any) => setError(e.response?.data?.message || 'Failed to reject'),
+  });
 
-  const settle = async (id: number) => {
-    setSettleLoadingId(id);
-    try {
-      await apiClient.post(`/travel-requests/${id}/settle`, { actual_expenditure: Number(settleValue) });
-      setSettleLoadingId(null);
-      await travelQuery.refetch();
-    } catch (e: any) {
-      alert(e.response?.data?.message || 'Failed to settle');
-      setSettleLoadingId(null);
-    }
+  const settle = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.post(`/travel-requests/${id}/settle`, { actual_expenditure: Number(settleValue || 0) });
+    },
+    onSuccess: async () => {
+      setSettleForId(null);
+      setSettleValue('0');
+      await qc.invalidateQueries({ queryKey: ['travelRequests'] });
+    },
+    onError: (e: any) => alert(e.response?.data?.message || 'Failed to settle'),
+  });
+
+  const onSubmit = async (values: TravelValues) => {
+    setError(null);
+    setSubmitLoading(true);
+    await createTravel.mutateAsync(values);
   };
 
   const shown = useMemo(() => requests, [requests]);
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <Text style={{ fontSize: 22, fontWeight: '900' }}>Travel</Text>
-        <Text style={{ color: '#64748B', marginTop: 6 }}>Apply travel and track approval/settlement.</Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title="Travel" />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        <Text style={[typography.muted]}>Apply travel and track approval/settlement.</Text>
+        {!!error ? <View style={{ marginTop: spacing.md }}><ErrorBanner message={error} /></View> : null}
 
-        <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9' }}>
-          <Text style={{ fontWeight: '900', fontSize: 16 }}>Apply for Travel</Text>
+        <AppCard style={{ marginTop: spacing.lg }}>
+          <Text style={[typography.h2]}>Apply for Travel</Text>
           {!isEmployee ? (
-            <Text style={{ color: '#6B7280', marginTop: 8 }}>Creation is restricted to Employee role.</Text>
+            <Text style={[typography.muted, { marginTop: spacing.sm }]}>Creation is restricted to Employee role.</Text>
           ) : (
             <>
-              <Text style={{ marginTop: 10 }}>Destination</Text>
-              <TextInput value={form.watch('destination')} onChangeText={(t) => form.setValue('destination', t, { shouldValidate: true })} style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }} placeholder="Pokhara" />
+              <AppInput
+                label="Destination"
+                value={form.watch('destination')}
+                onChangeText={(t) => form.setValue('destination', t, { shouldValidate: true })}
+                placeholder="Pokhara"
+                error={form.formState.errors.destination?.message}
+              />
 
-              <Text style={{ marginTop: 10 }}>Purpose</Text>
-              <TextInput value={form.watch('purpose')} onChangeText={(t) => form.setValue('purpose', t, { shouldValidate: true })} style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }} placeholder="Workshop facilitation" />
+              <AppInput
+                label="Purpose"
+                value={form.watch('purpose')}
+                onChangeText={(t) => form.setValue('purpose', t, { shouldValidate: true })}
+                placeholder="Workshop facilitation"
+                error={form.formState.errors.purpose?.message}
+              />
 
-              <Text style={{ marginTop: 10 }}>Start Date (YYYY-MM-DD)</Text>
-              <TextInput value={form.watch('start_date')} onChangeText={(t) => form.setValue('start_date', t, { shouldValidate: true })} style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }} placeholder="2026-04-20" />
+              <AppInput
+                label="Start Date (YYYY-MM-DD)"
+                value={form.watch('start_date')}
+                onChangeText={(t) => form.setValue('start_date', t, { shouldValidate: true })}
+                placeholder="2026-04-20"
+                error={form.formState.errors.start_date?.message}
+              />
 
-              <Text style={{ marginTop: 10 }}>End Date (YYYY-MM-DD)</Text>
-              <TextInput value={form.watch('end_date')} onChangeText={(t) => form.setValue('end_date', t, { shouldValidate: true })} style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }} placeholder="2026-04-22" />
+              <AppInput
+                label="End Date (YYYY-MM-DD)"
+                value={form.watch('end_date')}
+                onChangeText={(t) => form.setValue('end_date', t, { shouldValidate: true })}
+                placeholder="2026-04-22"
+                error={form.formState.errors.end_date?.message}
+              />
 
-              <Text style={{ marginTop: 10 }}>Estimated Budget (NRP)</Text>
-              <TextInput value={form.watch('estimated_budget') ?? '0'} onChangeText={(t) => form.setValue('estimated_budget', t, { shouldValidate: true })} keyboardType="decimal-pad" style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }} placeholder="0" />
+              <AppInput
+                label="Estimated Budget (NRP)"
+                value={form.watch('estimated_budget') ?? '0'}
+                onChangeText={(t) => form.setValue('estimated_budget', t, { shouldValidate: true })}
+                keyboardType="decimal-pad"
+                placeholder="0"
+              />
 
-              {!!error && <Text style={{ color: '#DC2626', marginTop: 10 }}>{error}</Text>}
-
-              <Pressable onPress={form.handleSubmit(onSubmit)} disabled={submitLoading} style={{ marginTop: 14, backgroundColor: '#2563EB', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: submitLoading ? 0.7 : 1 }}>
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{submitLoading ? 'Submitting...' : 'Submit Travel'}</Text>
-              </Pressable>
+              <AppButton
+                title={submitLoading ? 'Submitting...' : 'Submit Travel'}
+                onPress={form.handleSubmit(onSubmit)}
+                loading={submitLoading}
+                style={{ marginTop: spacing.md }}
+              />
             </>
           )}
-        </View>
+        </AppCard>
 
-        <View style={{ marginTop: 16 }}>
-          <Text style={{ fontWeight: '900', fontSize: 16 }}>Travel Requests</Text>
+        <View style={{ marginTop: spacing.lg }}>
+          <Text style={[typography.h2]}>Travel Requests</Text>
           {travelQuery.isLoading ? (
-            <ActivityIndicator color="#2563EB" style={{ marginTop: 12 }} />
+            <LoadingState />
           ) : shown.length === 0 ? (
-            <Text style={{ color: '#6B7280', marginTop: 12, fontWeight: '700' }}>No travel requests found.</Text>
+            <EmptyState title="No travel requests" subtitle="When you apply for travel, it will show here." />
           ) : (
-            <View style={{ marginTop: 10 }}>
+            <View style={{ marginTop: spacing.sm }}>
               {shown.map((r: any) => (
-                <View key={r.id} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 10 }}>
-                  <Text style={{ fontWeight: '900' }}>{r.destination}</Text>
-                  <Text style={{ marginTop: 6, color: '#64748B' }}>
+                <AppCard key={r.id} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ fontWeight: '900', color: colors.text }}>{r.destination}</Text>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]}>
                     {formatDateTimeYmdHms(r.start_date)} → {formatDateTimeYmdHms(r.end_date)}
                   </Text>
-                  <Text style={{ marginTop: 6, color: '#64748B' }}>Purpose: {r.purpose ?? '-'}</Text>
-                  <Text style={{ marginTop: 6, color: '#64748B' }}>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]} numberOfLines={2}>
+                    Purpose: {r.purpose ?? '-'}
+                  </Text>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]}>
                     Budget: {r.estimated_budget ?? 0} | Status: {String(r.status).toUpperCase()}
                   </Text>
 
                   {isApprover && r.status === 'pending' ? (
-                    <View style={{ flexDirection: 'row', marginTop: 12 }}>
-                      <Pressable onPress={() => approve(r.id)} style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: 12, paddingVertical: 12, alignItems: 'center', marginRight: 8 }}>
-                        <Text style={{ color: '#fff', fontWeight: '900' }}>Approve</Text>
-                      </Pressable>
-                      <Pressable onPress={() => reject(r.id)} style={{ flex: 1, backgroundColor: '#DC2626', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}>
-                        <Text style={{ color: '#fff', fontWeight: '900' }}>Reject</Text>
-                      </Pressable>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: spacing.md }}>
+                      <AppButton title="Approve" onPress={() => approve.mutate(r.id)} loading={approve.isPending} style={{ flex: 1 }} />
+                      <AppButton title="Reject" variant="danger" onPress={() => reject.mutate(r.id)} loading={reject.isPending} style={{ flex: 1 }} />
                     </View>
                   ) : null}
 
                   {isApprover && r.status === 'approved' ? (
-                    <View style={{ marginTop: 12 }}>
-                      <Text style={{ color: '#64748B', fontWeight: '700' }}>Settle (Actual Expenditure)</Text>
-                      <TextInput
-                        value={settleValue}
-                        onChangeText={setSettleValue}
-                        keyboardType="decimal-pad"
-                        style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
-                        placeholder="0"
-                      />
-                      <Pressable onPress={() => settle(r.id)} disabled={settleLoadingId === r.id} style={{ marginTop: 10, backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 12, alignItems: 'center', opacity: settleLoadingId === r.id ? 0.7 : 1 }}>
-                        <Text style={{ color: '#fff', fontWeight: '900' }}>{settleLoadingId === r.id ? 'Settling...' : 'Settle Travel'}</Text>
-                      </Pressable>
+                    <View style={{ marginTop: spacing.md }}>
+                      <AppButton title="Settle" variant="outline" onPress={() => setSettleForId(r.id)} />
                     </View>
                   ) : null}
-                </View>
+                </AppCard>
               ))}
             </View>
           )}
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+
+      <Modal transparent visible={!!settleForId} animationType="fade" onRequestClose={() => setSettleForId(null)}>
+        <Pressable
+          onPress={() => setSettleForId(null)}
+          style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.45)', padding: spacing.lg, justifyContent: 'center' }}
+        >
+          <Pressable onPress={() => undefined} style={{ backgroundColor: '#fff', borderRadius: radius.xl, overflow: 'hidden' }}>
+            <View style={{ padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' }}>
+              <Text style={[typography.h2]}>Settle Travel</Text>
+              <Text style={[typography.muted, { marginTop: spacing.xs }]}>Enter actual expenditure (NRP).</Text>
+            </View>
+            <View style={{ padding: spacing.lg }}>
+              <AppInput label="Actual Expenditure" value={settleValue} onChangeText={setSettleValue} keyboardType="decimal-pad" placeholder="0" />
+              <AppButton
+                title={settle.isPending ? 'Settling...' : 'Confirm Settle'}
+                onPress={() => (settleForId ? settle.mutate(settleForId) : null)}
+                loading={settle.isPending}
+                style={{ marginTop: spacing.md }}
+              />
+              <AppButton
+                title="Cancel"
+                variant="outline"
+                onPress={() => setSettleForId(null)}
+                disabled={settle.isPending}
+                style={{ marginTop: spacing.md }}
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
   );
 }
 

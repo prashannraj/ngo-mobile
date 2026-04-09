@@ -1,11 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { apiClient } from '../../api/client';
-import { formatDateTimeYmdHms } from '../../lib/date';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useQueryClient } from '@tanstack/react-query';
+import { Ionicons } from '@expo/vector-icons';
+import { AppButton, AppCard, AppHeader, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
 
 function toYmd(d: Date) {
   const y = d.getFullYear();
@@ -54,93 +57,96 @@ export default function ReportsScreen() {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <Text style={{ fontSize: 22, fontWeight: '900' }}>Reports (Excel)</Text>
-        <Text style={{ color: '#64748B', marginTop: 6 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title="Reports (Excel)" />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        <Text style={[typography.muted]}>
           Default range: {range.start} to {range.end}
         </Text>
 
-        <View style={{ marginTop: 16 }}>
-          <Text style={{ fontWeight: '900', marginBottom: 10 }}>Export</Text>
+        <AppCard style={{ marginTop: spacing.lg }}>
+          <Text style={[typography.h2]}>Export</Text>
 
-          <Pressable
-            onPress={() => handleDownload('leaves', '/reports/leaves/export-excel', `leave_requests.xlsx`)}
-            disabled={!token || !!busy}
-            style={{ backgroundColor: '#2563EB', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, opacity: busy ? 0.7 : 1 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy === 'leaves' ? 'Downloading...' : 'Leave Report'}</Text>
-          </Pressable>
+          <View style={{ marginTop: spacing.md, gap: 10 }}>
+            <AppButton
+              title={busy === 'leaves' ? 'Downloading...' : 'Leave Report'}
+              leftIcon={<Ionicons name="calendar-outline" size={18} color="#fff" />}
+              onPress={() => handleDownload('leaves', '/reports/leaves/export-excel', `leave_requests.xlsx`)}
+              disabled={!token || !!busy}
+              loading={busy === 'leaves'}
+            />
 
-          <Pressable
-            onPress={() =>
-              handleDownload(
-                'attendance',
-                '/reports/attendance/export-excel',
-                `attendance.xlsx`,
-                `start_date=${encodeURIComponent(range.start)}&end_date=${encodeURIComponent(range.end)}`,
-              )
-            }
-            disabled={!token || !!busy}
-            style={{ backgroundColor: '#16A34A', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, opacity: busy ? 0.7 : 1 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy === 'attendance' ? 'Downloading...' : 'Attendance Report'}</Text>
-          </Pressable>
+            <AppButton
+              title={busy === 'attendance' ? 'Downloading...' : 'Attendance Report'}
+              leftIcon={<Ionicons name="finger-print-outline" size={18} color="#fff" />}
+              onPress={() =>
+                handleDownload(
+                  'attendance',
+                  '/reports/attendance/export-excel',
+                  `attendance.xlsx`,
+                  `start_date=${encodeURIComponent(range.start)}&end_date=${encodeURIComponent(range.end)}`,
+                )
+              }
+              disabled={!token || !!busy}
+              loading={busy === 'attendance'}
+              style={{ backgroundColor: colors.success }}
+            />
 
-          <Pressable
-            onPress={() =>
-              handleDownload(
-                'timesheets',
-                '/reports/timesheets/export-excel',
-                `timesheets.xlsx`,
-                `start_date=${encodeURIComponent(range.start)}&end_date=${encodeURIComponent(range.end)}`,
-              )
-            }
-            disabled={!token || !!busy}
-            style={{ backgroundColor: '#F59E0B', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, opacity: busy ? 0.7 : 1 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy === 'timesheets' ? 'Downloading...' : 'Timesheet Report'}</Text>
-          </Pressable>
+            <AppButton
+              title={busy === 'timesheets' ? 'Downloading...' : 'Timesheet Report'}
+              leftIcon={<Ionicons name="time-outline" size={18} color="#fff" />}
+              onPress={() =>
+                handleDownload(
+                  'timesheets',
+                  '/reports/timesheets/export-excel',
+                  `timesheets.xlsx`,
+                  `start_date=${encodeURIComponent(range.start)}&end_date=${encodeURIComponent(range.end)}`,
+                )
+              }
+              disabled={!token || !!busy}
+              loading={busy === 'timesheets'}
+              style={{ backgroundColor: colors.warning }}
+            />
 
-          <Pressable
-            onPress={() => handleDownload('assets', '/reports/assets/export-excel', `assets.xlsx`)}
-            disabled={!token || !!busy}
-            style={{ backgroundColor: '#0EA5E9', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, opacity: busy ? 0.7 : 1 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy === 'assets' ? 'Downloading...' : 'Assets Report'}</Text>
-          </Pressable>
+            <AppButton
+              title={busy === 'assets' ? 'Downloading...' : 'Assets Report'}
+              leftIcon={<Ionicons name="cube-outline" size={18} color="#fff" />}
+              onPress={() => handleDownload('assets', '/reports/assets/export-excel', `assets.xlsx`)}
+              disabled={!token || !!busy}
+              loading={busy === 'assets'}
+              style={{ backgroundColor: '#0EA5E9' }}
+            />
 
-          <Pressable
-            onPress={() => handleDownload('vehicles', '/reports/vehicles/export-excel', `vehicles.xlsx`)}
-            disabled={!token || !!busy}
-            style={{ backgroundColor: '#7C3AED', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, opacity: busy ? 0.7 : 1 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy === 'vehicles' ? 'Downloading...' : 'Vehicles Report'}</Text>
-          </Pressable>
+            <AppButton
+              title={busy === 'vehicles' ? 'Downloading...' : 'Vehicles Report'}
+              leftIcon={<Ionicons name="car-outline" size={18} color="#fff" />}
+              onPress={() => handleDownload('vehicles', '/reports/vehicles/export-excel', `vehicles.xlsx`)}
+              disabled={!token || !!busy}
+              loading={busy === 'vehicles'}
+              style={{ backgroundColor: '#7C3AED' }}
+            />
 
-          <Pressable
-            onPress={() =>
-              handleDownload(
-                'travel',
-                '/reports/travel/export-excel',
-                `travel_requests.xlsx`,
-                `start_date=${encodeURIComponent(range.start)}&end_date=${encodeURIComponent(range.end)}`,
-              )
-            }
-            disabled={!token || !!busy}
-            style={{ backgroundColor: '#DC2626', borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginBottom: 10, opacity: busy ? 0.7 : 1 }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>{busy === 'travel' ? 'Downloading...' : 'Travel Report'}</Text>
-          </Pressable>
-        </View>
-
-        {busy ? (
-          <View style={{ marginTop: 12 }}>
-            <ActivityIndicator size="large" color="#2563EB" />
+            <AppButton
+              title={busy === 'travel' ? 'Downloading...' : 'Travel Report'}
+              leftIcon={<Ionicons name="airplane-outline" size={18} color="#fff" />}
+              onPress={() =>
+                handleDownload(
+                  'travel',
+                  '/reports/travel/export-excel',
+                  `travel_requests.xlsx`,
+                  `start_date=${encodeURIComponent(range.start)}&end_date=${encodeURIComponent(range.end)}`,
+                )
+              }
+              disabled={!token || !!busy}
+              loading={busy === 'travel'}
+              variant="danger"
+            />
           </View>
-        ) : null}
-      </View>
-    </ScrollView>
+        </AppCard>
+
+        {busy ? <LoadingState label="Preparing download..." /> : null}
+      </ScrollView>
+    </View>
   );
 }
 

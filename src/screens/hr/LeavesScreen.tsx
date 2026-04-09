@@ -1,12 +1,16 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { apiClient } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeYmdHms } from '../../lib/date';
+import { AppButton, AppCard, AppHeader, AppInput, AppSelect, EmptyState, ErrorBanner, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
+import { useLanguage } from '../../context/LanguageContext';
 
 const schema = z.object({
   leave_type_id: z.string().min(1),
@@ -18,8 +22,13 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 async function fetchLeaveTypes() {
-  const res = await apiClient.get('/leave-types');
-  return res.data?.data ?? res.data ?? [];
+  try {
+    const res = await apiClient.get('/leave-types-list');
+    return res.data?.data ?? res.data ?? [];
+  } catch (e: any) {
+    const res = await apiClient.get('/leave-types');
+    return res.data?.data ?? res.data ?? [];
+  }
 }
 
 async function fetchLeaves() {
@@ -29,6 +38,8 @@ async function fetchLeaves() {
 
 export default function LeavesScreen() {
   const { user } = useAuth();
+  const { t } = useLanguage();
+  const qc = useQueryClient();
   const roles = (user?.roles ?? []) as string[];
 
   const isEmployee = useMemo(() => roles.includes('Employee'), [roles]);
@@ -48,156 +59,179 @@ export default function LeavesScreen() {
     defaultValues: { leave_type_id: '', start_date: '', end_date: '', reason: '' },
   });
 
-  const onSubmit = async (values: FormValues) => {
-    setError(null);
-    setSubmitLoading(true);
-    try {
+  const createLeave = useMutation({
+    mutationFn: async (values: FormValues) => {
       await apiClient.post('/leaves', {
         leave_type_id: Number(values.leave_type_id),
         start_date: values.start_date,
         end_date: values.end_date,
         reason: values.reason,
       });
+    },
+    onSuccess: async () => {
       form.reset({ leave_type_id: '', start_date: '', end_date: '', reason: '' });
-      await leavesQuery.refetch();
-    } catch (e: any) {
+      await qc.invalidateQueries({ queryKey: ['leaves'] });
+    },
+    onError: (e: any) => {
       setError(e.response?.data?.message || 'Failed to submit leave');
-    } finally {
-      setSubmitLoading(false);
-    }
+    },
+    onSettled: () => setSubmitLoading(false),
+  });
+
+  const approveLeave = useMutation({
+    mutationFn: async (id: number) => {
+      await apiClient.post(`/leaves/${id}/approve`);
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['leaves'] });
+    },
+    onError: (e: any) => setError(e.response?.data?.message || 'Failed to approve leave'),
+  });
+
+  const rejectLeave = useMutation({
+    mutationFn: async (id: number) => {
+      // backend expects rejection_reason in body (see controller)
+      await apiClient.post(`/leaves/${id}/reject`, { rejection_reason: 'Rejected by approver' });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['leaves'] });
+    },
+    onError: (e: any) => setError(e.response?.data?.message || 'Failed to reject leave'),
+  });
+
+  const onSubmit = async (values: FormValues) => {
+    setError(null);
+    setSubmitLoading(true);
+    await createLeave.mutateAsync(values);
   };
 
-  const handleApprove = async (id: number) => {
-    await apiClient.post(`/leaves/${id}/approve`);
-    await leavesQuery.refetch();
-  };
-
-  const handleReject = async (id: number) => {
-    // backend expects rejection_reason in body (see controller)
-    await apiClient.post(`/leaves/${id}/reject`, { rejection_reason: 'Rejected by approver' });
-    await leavesQuery.refetch();
-  };
+  const typeOptions = (types ?? []).map((x: any) => ({
+    label: x?.name ? String(x.name) : `${x?.id}`,
+    value: String(x?.id ?? ''),
+  }));
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <Text style={{ fontSize: 22, fontWeight: '900' }}>Leaves</Text>
-        <Text style={{ color: '#64748B', marginTop: 6 }}>Apply leaves and track approval status.</Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title={t('nav.leaves')} />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        <Text style={[typography.muted]}>{t('leaves.subtitle')}</Text>
 
-        <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9' }}>
-          <Text style={{ fontWeight: '900', fontSize: 16 }}>Apply for Leave</Text>
+        {(typesQuery.isError || leavesQuery.isError) && !error ? (
+          <View style={{ marginTop: spacing.md }}>
+            <ErrorBanner message="Failed to load leave data. Please try again." />
+          </View>
+        ) : null}
+
+        <AppCard style={{ marginTop: spacing.lg }}>
+          <Text style={[typography.h2]}>{t('leaves.applyTitle')}</Text>
 
           {!isEmployee ? (
-            <Text style={{ color: '#6B7280', marginTop: 8 }}>Creation is restricted to Employee role.</Text>
+            <Text style={[typography.muted, { marginTop: spacing.sm }]}>Creation is restricted to Employee role.</Text>
           ) : (
             <>
-              <Text style={{ marginTop: 10 }}>Leave Type ID</Text>
-              <TextInput
+              {!!error ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <ErrorBanner message={error} />
+                </View>
+              ) : null}
+
+              <AppSelect
+                label={t('leaves.leaveTypeId')}
                 value={form.watch('leave_type_id')}
-                onChangeText={(t) => form.setValue('leave_type_id', t, { shouldValidate: true })}
-                style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
-                placeholder="e.g. 1"
+                onChange={(v) => form.setValue('leave_type_id', v, { shouldValidate: true })}
+                options={typeOptions}
+                placeholder="Select leave type"
+                error={form.formState.errors.leave_type_id?.message}
               />
 
-              <Text style={{ marginTop: 10 }}>Start Date (YYYY-MM-DD)</Text>
-              <TextInput
+              <AppInput
+                label={t('leaves.startDate')}
                 value={form.watch('start_date')}
                 onChangeText={(t) => form.setValue('start_date', t, { shouldValidate: true })}
-                style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
                 placeholder="2026-04-15"
               />
 
-              <Text style={{ marginTop: 10 }}>End Date (YYYY-MM-DD)</Text>
-              <TextInput
+              <AppInput
+                label={t('leaves.endDate')}
                 value={form.watch('end_date')}
                 onChangeText={(t) => form.setValue('end_date', t, { shouldValidate: true })}
-                style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
                 placeholder="2026-04-16"
               />
 
-              <Text style={{ marginTop: 10 }}>Reason</Text>
-              <TextInput
+              <AppInput
+                label={t('leaves.reason')}
                 value={form.watch('reason')}
                 onChangeText={(t) => form.setValue('reason', t, { shouldValidate: true })}
-                style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
                 placeholder="Family function"
+                error={form.formState.errors.reason?.message}
               />
 
-              {form.formState.errors.reason?.message ? (
-                <Text style={{ color: '#DC2626', marginTop: 8 }}>{form.formState.errors.reason.message}</Text>
-              ) : null}
-
-              {!!error && <Text style={{ color: '#DC2626', marginTop: 10 }}>{error}</Text>}
-
-              <Pressable
+              <AppButton
+                title={submitLoading ? t('leaves.submitting') : t('leaves.submit')}
                 onPress={form.handleSubmit(onSubmit)}
-                disabled={submitLoading}
-                style={{ marginTop: 14, backgroundColor: '#2563EB', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: submitLoading ? 0.7 : 1 }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{submitLoading ? 'Submitting...' : 'Submit Leave'}</Text>
-              </Pressable>
+                loading={submitLoading}
+                style={{ marginTop: spacing.md }}
+              />
 
-              <Text style={{ color: '#6B7280', marginTop: 12, fontSize: 12 }}>
-                Tip: leave types are fetched below. Use the ID from that list.
+              <Text style={[typography.muted, { marginTop: spacing.md, fontSize: 12 }]}>
+                {t('leaves.tip')}
               </Text>
             </>
           )}
-        </View>
+        </AppCard>
 
-        <View style={{ marginTop: 16 }}>
-          <Text style={{ fontWeight: '900', fontSize: 16 }}>Leave Requests</Text>
+        <View style={{ marginTop: spacing.lg }}>
+          <Text style={[typography.h2]}>{t('leaves.requestsTitle')}</Text>
           {leavesQuery.isLoading ? (
-            <ActivityIndicator color="#2563EB" style={{ marginTop: 12 }} />
+            <LoadingState />
           ) : leaves.length === 0 ? (
-            <Text style={{ color: '#6B7280', marginTop: 12, fontWeight: '700' }}>No leave requests found.</Text>
+            <EmptyState title={t('leaves.noRequestsTitle')} subtitle={t('leaves.noRequestsSubtitle')} />
           ) : (
-            <View style={{ marginTop: 10 }}>
+            <View style={{ marginTop: spacing.sm }}>
               {leaves.map((l: any) => (
-                <View
-                  key={l.id}
-                  style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 10 }}
-                >
-                  <Text style={{ fontWeight: '900' }}>{l.leaveType?.name ?? 'Leave'}</Text>
-                  <Text style={{ color: '#64748B', marginTop: 6 }}>
+                <AppCard key={l.id} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ fontWeight: '900', color: colors.text }}>{l.leaveType?.name ?? 'Leave'}</Text>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]}>
                     Dates: {formatDateTimeYmdHms(l.start_date)} → {formatDateTimeYmdHms(l.end_date)}
                   </Text>
-                  <Text style={{ color: '#64748B', marginTop: 6 }}>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]}>
                     Days: {l.days ?? '-'} | Status: {String(l.status).toUpperCase()}
                   </Text>
                   {isApprover && l.status === 'pending' ? (
-                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-                      <Pressable
-                        onPress={() => handleApprove(l.id)}
-                        style={{ flex: 1, backgroundColor: '#16A34A', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: '900' }}>Approve</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => handleReject(l.id)}
-                        style={{ flex: 1, backgroundColor: '#DC2626', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: '900' }}>Reject</Text>
-                      </Pressable>
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: spacing.md }}>
+                      <AppButton
+                        title={t('leaves.approve')}
+                        onPress={() => approveLeave.mutate(l.id)}
+                        loading={approveLeave.isPending}
+                        style={{ flex: 1 }}
+                      />
+                      <AppButton
+                        title={t('leaves.reject')}
+                        variant="danger"
+                        onPress={() => rejectLeave.mutate(l.id)}
+                        loading={rejectLeave.isPending}
+                        style={{ flex: 1 }}
+                      />
                     </View>
                   ) : null}
-                </View>
+                </AppCard>
               ))}
             </View>
           )}
         </View>
 
         {typesQuery.isLoading ? null : types?.length ? (
-          <View style={{ marginTop: 12 }}>
-            <Text style={{ fontWeight: '900', fontSize: 16 }}>Leave Types (IDs)</Text>
+          <AppCard style={{ marginTop: spacing.lg }}>
+            <Text style={[typography.h2]}>{t('leaves.typesTitle')}</Text>
             {types.map((t: any) => (
-              <Text key={t.id} style={{ marginTop: 6, color: '#334155' }}>
+              <Text key={t.id} style={{ marginTop: spacing.xs, color: '#334155', fontWeight: '700' }}>
                 {t.id}: {t.name}
               </Text>
             ))}
-          </View>
+          </AppCard>
         ) : null}
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

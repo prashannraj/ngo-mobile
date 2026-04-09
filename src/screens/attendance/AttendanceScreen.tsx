@@ -1,11 +1,14 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { formatDateTimeYmdHms } from '../../lib/date';
 import * as Location from 'expo-location';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { AppButton, AppCard, AppHeader, EmptyState, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
 
 function originLocation(r: any) {
   const hasGps =
@@ -73,101 +76,72 @@ export default function AttendanceScreen() {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <Text style={{ fontSize: 22, fontWeight: '900' }}>Attendance</Text>
-        <Text style={{ color: '#64748B', marginTop: 6 }}>Mobile check-in/out + last records.</Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title="Attendance" />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        <Text style={[typography.muted]}>Mobile check-in/out + last records.</Text>
 
-        <View style={{ marginTop: 14, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9' }}>
+        <AppCard style={{ marginTop: spacing.lg }}>
           {attendanceQuery.isLoading ? (
-            <ActivityIndicator color="#2563EB" />
+            <LoadingState />
           ) : todayRecord?.check_in && !todayRecord?.check_out ? (
             <View>
-              <Text style={{ color: '#6B7280', fontWeight: '900' }}>Shift Started</Text>
-              <Text style={{ fontSize: 28, fontWeight: '900', color: '#2563EB', marginTop: 6 }}>{todayRecord.check_in}</Text>
-              <Pressable
+              <Text style={[typography.muted, { fontWeight: '900' }]}>Shift Started</Text>
+              <Text style={{ fontSize: 28, fontWeight: '900', color: colors.primary, marginTop: spacing.xs }}>{todayRecord.check_in}</Text>
+              <AppButton
+                title={busy ? 'Checking out...' : 'Check Out Now'}
+                variant="danger"
                 onPress={() => handleMobileCheck('out')}
-                disabled={busy}
-                style={{
-                  marginTop: 14,
-                  backgroundColor: '#DC2626',
-                  borderRadius: 14,
-                  paddingVertical: 14,
-                  alignItems: 'center',
-                  opacity: busy ? 0.7 : 1,
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'Checking out...' : 'Check Out Now'}</Text>
-              </Pressable>
+                loading={busy}
+                style={{ marginTop: spacing.md }}
+              />
             </View>
           ) : todayRecord?.check_out ? (
             <View>
-              <Text style={{ color: '#16A34A', fontWeight: '900', fontSize: 20 }}>Day Completed</Text>
-              <Text style={{ color: '#64748B', marginTop: 8 }}>
+              <Text style={{ color: colors.success, fontWeight: '900', fontSize: 20 }}>Day Completed</Text>
+              <Text style={[typography.muted, { marginTop: spacing.sm }]}>
                 {todayRecord.check_in} - {todayRecord.check_out}
               </Text>
             </View>
           ) : (
             <View>
-              <Text style={{ color: '#6B7280', fontWeight: '600' }}>Welcome! Start your work session below.</Text>
-              <Pressable
+              <Text style={[typography.muted]}>Welcome! Start your work session below.</Text>
+              <AppButton
+                title={busy ? 'Checking in...' : 'Check In Now'}
                 onPress={() => handleMobileCheck('in')}
-                disabled={busy}
-                style={{
-                  marginTop: 14,
-                  backgroundColor: '#2563EB',
-                  borderRadius: 14,
-                  paddingVertical: 14,
-                  alignItems: 'center',
-                  opacity: busy ? 0.7 : 1,
-                }}
-              >
-                <Text style={{ color: '#fff', fontWeight: '900' }}>{busy ? 'Checking in...' : 'Check In Now'}</Text>
-              </Pressable>
+                loading={busy}
+                style={{ marginTop: spacing.md }}
+              />
             </View>
           )}
-        </View>
+        </AppCard>
 
-        <View style={{ marginTop: 16 }}>
-          <Text style={{ fontWeight: '900', fontSize: 16 }}>Attendance Records</Text>
+        <View style={{ marginTop: spacing.lg }}>
+          <Text style={[typography.h2]}>Attendance Records</Text>
         </View>
 
         {attendanceQuery.isLoading ? (
-          <View style={{ paddingVertical: 20 }}>
-            <ActivityIndicator color="#2563EB" />
-          </View>
+          <LoadingState />
         ) : rows.length === 0 ? (
-          <Text style={{ marginTop: 12, color: '#6B7280', fontWeight: '700' }}>No attendance records found.</Text>
+          <EmptyState title="No attendance records" subtitle="Your attendance history will appear here." />
         ) : (
-          <View style={{ marginTop: 10 }}>
+          <View style={{ marginTop: spacing.sm }}>
             {rows.map((r: any) => (
-              <View
-                key={r.id}
-                style={{
-                  backgroundColor: '#fff',
-                  borderRadius: 16,
-                  padding: 14,
-                  marginBottom: 10,
-                  borderWidth: 1,
-                  borderColor: '#F1F5F9',
-                }}
-              >
-                <Text style={{ fontWeight: '900' }}>{formatDateTimeYmdHms(r.date)}</Text>
-                <Text style={{ marginTop: 6, color: '#64748B' }}>
+              <AppCard key={r.id} style={{ marginBottom: spacing.sm }}>
+                <Text style={{ fontWeight: '900', color: colors.text }}>{formatDateTimeYmdHms(r.date)}</Text>
+                <Text style={[typography.muted, { marginTop: spacing.xs }]}>
                   Check In: {r.check_in || '-'} | Check Out: {r.check_out || '-'}
                 </Text>
-                <Text style={{ marginTop: 6, color: '#64748B' }}>
+                <Text style={[typography.muted, { marginTop: spacing.xs }]}>
                   Status: {String(r.status).toUpperCase()} | Source: {r.source || '-'}
                 </Text>
-                <Text style={{ marginTop: 6, color: '#64748B', fontFamily: 'monospace' }}>
-                  Origin: {originLocation(r)}
-                </Text>
-              </View>
+                <Text style={[typography.mono, { marginTop: spacing.xs }]}>Origin: {originLocation(r)}</Text>
+              </AppCard>
             ))}
           </View>
         )}
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

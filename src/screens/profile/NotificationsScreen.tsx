@@ -1,9 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
 import { formatDateTimeYmdHms } from '../../lib/date';
+import { AppButton, AppCard, AppHeader, EmptyState, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
 
 type NotificationRow = {
   id: number;
@@ -55,51 +58,33 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center' }}>
-        <Text style={{ flex: 1, textAlign: 'center', fontSize: 22, fontWeight: '900' }}>Notifications</Text>
-      </View>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title="Notifications" />
 
-      <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
-        <Pressable
-          onPress={handleMarkAllRead}
-          style={{ backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '800' }}>Mark all as read</Text>
-        </Pressable>
+      <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }}>
+        <AppButton title="Mark all as read" onPress={handleMarkAllRead} />
       </View>
 
       {notificationsQuery.isLoading ? (
-        <View style={{ flex: 1, justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color="#2563EB" />
-        </View>
+        <LoadingState />
       ) : notifications.length === 0 ? (
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 }}>
-          <Text style={{ color: '#6B7280', fontWeight: '700' }}>No notifications found.</Text>
-        </View>
+        <EmptyState title="No notifications" subtitle="When you receive notifications, they will appear here." />
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 30 }}>
           {notifications.map((n) => (
-            <View key={n.id} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#F1F5F9' }}>
+            <AppCard key={n.id} style={{ marginBottom: spacing.sm }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ fontWeight: '900', color: '#0F172A' }}>{n.title || 'Notification'}</Text>
-                <Text style={{ color: n.read_at ? '#64748B' : '#DC2626', fontWeight: '900' }}>{n.read_at ? 'READ' : 'UNREAD'}</Text>
+                <Text style={{ fontWeight: '900', color: colors.text }}>{n.title || 'Notification'}</Text>
+                <Text style={{ color: n.read_at ? '#64748B' : colors.danger, fontWeight: '900' }}>{n.read_at ? 'READ' : 'UNREAD'}</Text>
               </View>
-              <Text style={{ marginTop: 8, color: '#334155' }} numberOfLines={4}>
+              <Text style={{ marginTop: spacing.sm, color: '#334155', fontWeight: '600' }} numberOfLines={6}>
                 {n.body || '-'}
               </Text>
-              <Text style={{ marginTop: 10, color: '#64748B', fontWeight: '700', fontFamily: 'monospace' }}>
-                {formatDateTimeYmdHms(n.created_at)}
-              </Text>
+              <Text style={[typography.mono, { marginTop: spacing.sm }]}>{formatDateTimeYmdHms(n.created_at)}</Text>
               {!n.read_at ? (
-                <Pressable
-                  onPress={() => handleMarkRead(n.id)}
-                  style={{ marginTop: 12, borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 12, paddingVertical: 10, alignItems: 'center' }}
-                >
-                  <Text style={{ color: '#2563EB', fontWeight: '800' }}>Mark read</Text>
-                </Pressable>
+                <AppButton title="Mark read" variant="outline" onPress={() => handleMarkRead(n.id)} style={{ marginTop: spacing.md }} />
               ) : null}
-            </View>
+            </AppCard>
           ))}
         </ScrollView>
       )}

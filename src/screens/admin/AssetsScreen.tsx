@@ -1,49 +1,68 @@
 import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
-import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../../context/AuthContext';
+import { AppCard, AppHeader, AppInput, EmptyState, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
 
-async function fetchAssets() {
-  const res = await apiClient.get('/assets?per_page=50');
-  return res.data?.data?.data ?? [];
+async function fetchAssets(search: string) {
+  const res = await apiClient.get('/assets', {
+    params: { per_page: 50, search: search || undefined },
+  });
+  return res.data?.data?.data ?? res.data?.data?.data?.data ?? res.data?.data ?? [];
 }
 
 export default function AssetsScreen() {
-  const navigation = useNavigation<any>();
-  const query = useQuery({ queryKey: ['assetsList'], queryFn: fetchAssets });
+  const { user } = useAuth();
+  const roles = (user?.roles ?? []) as string[];
+  const isEmployee = roles.includes('Employee');
+
+  const [search, setSearch] = React.useState('');
+
+  const query = useQuery({
+    queryKey: ['assetsList', search],
+    queryFn: () => fetchAssets(search),
+  });
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Pressable onPress={() => navigation.goBack()}>
-            <Text style={{ color: '#2563EB', fontWeight: '800' }}>Back</Text>
-          </Pressable>
-          <Text style={{ flex: 1, textAlign: 'center', fontSize: 22, fontWeight: '900' }}>Assets</Text>
-        </View>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title="Assets" />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        <Text style={[typography.muted]}>
+          {isEmployee ? 'Your assigned assets are shown here.' : 'All assets are shown here (use search to filter).'}
+        </Text>
+
+        {!isEmployee ? (
+          <AppInput label="Search" value={search} onChangeText={setSearch} placeholder="Search by name / tag / category" />
+        ) : null}
 
         {query.isLoading ? (
-          <View style={{ marginTop: 16 }}>
-            <ActivityIndicator color="#2563EB" />
-          </View>
-        ) : query.data?.length ? (
-          <View style={{ marginTop: 12 }}>
-            {query.data.map((a: any) => (
-              <View key={a.id} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9', marginBottom: 10 }}>
-                <Text style={{ fontWeight: '900' }}>{a.name ?? 'Asset'}</Text>
-                <Text style={{ marginTop: 6, color: '#64748B' }}>
-                  Tag: {a.asset_tag ?? '-'} | Category: {a.category ?? '-'}
-                </Text>
-                <Text style={{ marginTop: 6, color: '#64748B' }}>Status: {String(a.status ?? '-').toUpperCase()}</Text>
-              </View>
-            ))}
+          <LoadingState />
+        ) : (query.data ?? []).length ? (
+          <View style={{ marginTop: spacing.md }}>
+            {(query.data ?? []).map((a: any) => {
+              const assignedTo = a?.activeAssignment?.employee
+                ? `${a.activeAssignment.employee.first_name ?? ''} ${a.activeAssignment.employee.last_name ?? ''}`.trim()
+                : null;
+              return (
+                <AppCard key={a.id} style={{ marginBottom: spacing.sm }}>
+                  <Text style={{ fontWeight: '900', color: colors.text }}>{a.name ?? 'Asset'}</Text>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]}>
+                    Tag: {a.asset_tag ?? '-'} | Category: {a.category ?? '-'}
+                  </Text>
+                  <Text style={[typography.muted, { marginTop: spacing.xs }]}>Status: {String(a.status ?? '-').toUpperCase()}</Text>
+                  {!!assignedTo ? <Text style={[typography.muted, { marginTop: spacing.xs }]}>Assigned to: {assignedTo}</Text> : null}
+                </AppCard>
+              );
+            })}
           </View>
         ) : (
-          <Text style={{ marginTop: 16, color: '#6B7280', fontWeight: '700' }}>No assets found.</Text>
+          <EmptyState title="No assets found" subtitle={isEmployee ? 'No assets are currently assigned to you.' : 'Try a different search.'} />
         )}
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

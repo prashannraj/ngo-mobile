@@ -5,8 +5,10 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { colors } from './src/theme/colors';
+import { LanguageProvider } from './src/context/LanguageContext';
 import LoginScreen from './src/screens/auth/LoginScreen';
 import LoginOtpScreen from './src/screens/auth/LoginOtpScreen';
 import ForgotPasswordRequestScreen from './src/screens/auth/ForgotPasswordRequestScreen';
@@ -61,7 +63,51 @@ const AuthStackNavigator: React.FC = () => {
 const AppTabsNavigator: React.FC = () => {
   const Tab = createBottomTabNavigator();
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false }}>
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarShowLabel: true,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: '#64748B',
+        tabBarStyle: {
+          borderTopColor: '#E2E8F0',
+          backgroundColor: '#ffffff',
+          height: 64,
+          paddingBottom: 8,
+          paddingTop: 6,
+        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+        tabBarIcon: ({ color, size, focused }) => {
+          const iconSize = 22;
+          const name =
+            route.name === 'Home'
+              ? focused
+                ? 'home'
+                : 'home-outline'
+              : route.name === 'Attendance'
+                ? focused
+                  ? 'finger-print'
+                  : 'finger-print-outline'
+                : route.name === 'HR'
+                  ? focused
+                    ? 'people'
+                    : 'people-outline'
+                  : route.name === 'Tasks'
+                    ? focused
+                      ? 'list'
+                      : 'list-outline'
+                    : route.name === 'Notifications'
+                      ? focused
+                        ? 'notifications'
+                        : 'notifications-outline'
+                      : focused
+                        ? 'person'
+                        : 'person-outline';
+
+          return <Ionicons name={name as any} size={iconSize} color={color} />;
+        },
+      })}
+    >
       <Tab.Screen name="Home" component={DashboardScreen} />
       <Tab.Screen name="Attendance" component={AttendanceScreen} />
       <Tab.Screen name="HR" component={HRStackNavigator} />
@@ -101,7 +147,9 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RootNavigator />
+        <LanguageProvider>
+          <RootNavigator />
+        </LanguageProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

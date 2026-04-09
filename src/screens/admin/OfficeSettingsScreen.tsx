@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { apiClient } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { AppButton, AppCard, AppHeader, AppInput, ErrorBanner, LoadingState } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
 
 const schema = z.object({
   ngo_name: z.string().min(1, 'NGO name is required'),
@@ -62,79 +65,66 @@ export default function OfficeSettingsScreen() {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: '#F9FAFB' }}>
-      <View style={{ padding: 16, marginTop: 10 }}>
-        <Text style={{ fontSize: 22, fontWeight: '900' }}>Office Settings</Text>
-        <Text style={{ color: '#64748B', marginTop: 6 }}>Configure office information and SMS gateway template.</Text>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <AppHeader title="Office Settings" />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
+        <Text style={[typography.muted]}>Configure office information and SMS gateway template.</Text>
 
         {settingsQuery.isLoading ? (
-          <View style={{ marginTop: 16 }}>
-            <ActivityIndicator color="#2563EB" />
-          </View>
+          <LoadingState />
         ) : (
-          <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#F1F5F9' }}>
-            <Text style={{ fontWeight: '900' }}>NGO Name</Text>
-            <TextInput
+          <AppCard style={{ marginTop: spacing.lg }}>
+            {!!submitError ? <ErrorBanner message={submitError} /> : null}
+
+            <AppInput
+              label="NGO Name"
               value={form.watch('ngo_name')}
               onChangeText={(t) => form.setValue('ngo_name', t, { shouldValidate: true })}
-              style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
               editable={canEdit}
+              error={form.formState.errors.ngo_name?.message}
             />
-            {form.formState.errors.ngo_name?.message ? (
-              <Text style={{ color: '#DC2626', marginTop: 6 }}>{form.formState.errors.ngo_name.message}</Text>
-            ) : null}
 
-            <Text style={{ fontWeight: '900', marginTop: 14 }}>NGO Address</Text>
-            <TextInput
+            <AppInput
+              label="NGO Address"
               value={form.watch('ngo_address')}
               onChangeText={(t) => form.setValue('ngo_address', t, { shouldValidate: true })}
-              style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
               editable={canEdit}
               placeholder="Office address..."
+              error={form.formState.errors.ngo_address?.message}
             />
-            {form.formState.errors.ngo_address?.message ? (
-              <Text style={{ color: '#DC2626', marginTop: 6 }}>{form.formState.errors.ngo_address.message}</Text>
-            ) : null}
 
-            <Text style={{ fontWeight: '900', marginTop: 14 }}>SMS Gateway API (URL template)</Text>
-            <TextInput
+            <AppInput
+              label="SMS Gateway API (URL template)"
               value={form.watch('sms_gateway_api') ?? ''}
               onChangeText={(t) => form.setValue('sms_gateway_api', t, { shouldValidate: true })}
-              style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8, minHeight: 80 }}
               editable={canEdit}
               placeholder="e.g. https://gateway.com/send?to={to}&message={message}"
               multiline
+              inputStyle={{ minHeight: 80, textAlignVertical: 'top' }}
             />
-            <Text style={{ color: '#64748B', marginTop: 8, fontSize: 12 }}>
-              Placeholders: <Text style={{ fontFamily: 'monospace' }}>{'{to}'}</Text> and <Text style={{ fontFamily: 'monospace' }}>{'{message}'}</Text>
+
+            <Text style={[typography.muted, { marginTop: spacing.sm, fontSize: 12 }]}>
+              Placeholders: <Text style={{ fontFamily: 'monospace' }}>{'{to}'}</Text> and{' '}
+              <Text style={{ fontFamily: 'monospace' }}>{'{message}'}</Text>
             </Text>
 
             {!canEdit ? (
-              <Text style={{ color: '#6B7280', marginTop: 12, fontWeight: '700' }}>
+              <Text style={[typography.muted, { marginTop: spacing.md, fontWeight: '800' }]}>
                 Only Super Admin can edit and save settings.
               </Text>
             ) : null}
 
-            {!!submitError && <Text style={{ color: '#DC2626', marginTop: 12 }}>{submitError}</Text>}
-
-            <Pressable
+            <AppButton
+              title={submitLoading ? 'Saving...' : 'Save Settings'}
               onPress={form.handleSubmit(onSubmit)}
-              disabled={!canEdit || submitLoading}
-              style={{
-                marginTop: 14,
-                backgroundColor: canEdit ? '#2563EB' : '#CBD5E1',
-                borderRadius: 14,
-                paddingVertical: 14,
-                alignItems: 'center',
-                opacity: submitLoading ? 0.7 : 1,
-              }}
-            >
-              <Text style={{ color: '#fff', fontWeight: '900' }}>{submitLoading ? 'Saving...' : 'Save Settings'}</Text>
-            </Pressable>
-          </View>
+              disabled={!canEdit}
+              loading={submitLoading}
+              style={{ marginTop: spacing.lg }}
+            />
+          </AppCard>
         )}
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

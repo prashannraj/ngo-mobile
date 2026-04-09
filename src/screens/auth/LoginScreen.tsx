@@ -1,11 +1,15 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Platform, Text, View } from 'react-native';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { apiClient } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
+import { AppButton, AppInput, ErrorBanner } from '../../components';
+import { colors } from '../../theme/colors';
+import { spacing, typography } from '../../theme/tokens';
+import { useLanguage } from '../../context/LanguageContext';
 
 const schema = z.object({
   email: z.string().email({ message: 'Enter a valid email' }),
@@ -17,6 +21,7 @@ type FormValues = z.infer<typeof schema>;
 export default function LoginScreen() {
   const navigation = useNavigation<any>();
   const { setSession } = useAuth();
+  const { t } = useLanguage();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,60 +65,52 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={{ flex: 1, padding: 20, backgroundColor: '#fff' }}
+      style={{ flex: 1, padding: spacing.xl, backgroundColor: colors.background }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={{ marginTop: 20 }}>
-        <Text style={{ fontSize: 26, fontWeight: '700', marginBottom: 20 }}>Login</Text>
+      <View style={{ marginTop: spacing.xxl }}>
+        <Image
+          source={require('../../../assets/appan_logo.png')}
+          style={{ width: 64, height: 64, marginBottom: spacing.md }}
+          resizeMode="contain"
+        />
+        <Text style={[typography.title, { fontSize: 28 }]}>{t('app.name')}</Text>
+        <Text style={[typography.muted, { marginTop: spacing.xs }]}>{t('login.subtitle')}</Text>
 
-        <Text>Email</Text>
-        <TextInput
+        {!!error ? <View style={{ marginTop: spacing.lg }}><ErrorBanner message={error} /></View> : null}
+
+        <AppInput
+          label={t('common.email')}
           value={form.watch('email')}
           onChangeText={(t) => form.setValue('email', t, { shouldValidate: true })}
           keyboardType="email-address"
           autoCapitalize="none"
-          style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
           placeholder="username@appan.com"
+          error={form.formState.errors.email?.message}
         />
-        {form.formState.errors.email?.message ? (
-          <Text style={{ color: '#DC2626', marginTop: 6 }}>{form.formState.errors.email.message}</Text>
-        ) : null}
 
-        <Text style={{ marginTop: 16 }}>Password</Text>
-        <TextInput
+        <AppInput
+          label={t('common.password')}
           value={form.watch('password')}
           onChangeText={(t) => form.setValue('password', t, { shouldValidate: true })}
           secureTextEntry
-          style={{ borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, marginTop: 8 }}
           placeholder="••••••••"
+          error={form.formState.errors.password?.message}
         />
-        {form.formState.errors.password?.message ? (
-          <Text style={{ color: '#DC2626', marginTop: 6 }}>{form.formState.errors.password.message}</Text>
-        ) : null}
 
-        {!!error && <Text style={{ color: '#DC2626', marginTop: 12 }}>{error}</Text>}
-
-        <Pressable
+        <AppButton
+          title={t('common.continue')}
           onPress={form.handleSubmit(onSubmit)}
-          disabled={loading}
-          style={{
-            marginTop: 18,
-            backgroundColor: '#2563EB',
-            borderRadius: 12,
-            paddingVertical: 14,
-            alignItems: 'center',
-            opacity: loading ? 0.7 : 1,
-          }}
-        >
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={{ color: '#fff', fontWeight: '700' }}>Continue</Text>}
-        </Pressable>
+          loading={loading}
+          style={{ marginTop: spacing.lg }}
+        />
 
-        <Pressable
+        <AppButton
+          title={t('common.forgotPassword')}
+          variant="outline"
           onPress={() => navigation.navigate('ForgotPasswordRequest')}
-          style={{ marginTop: 14, alignItems: 'center' }}
-        >
-          <Text style={{ color: '#2563EB', fontWeight: '600' }}>Forgot password?</Text>
-        </Pressable>
+          style={{ marginTop: spacing.md }}
+        />
       </View>
     </KeyboardAvoidingView>
   );
