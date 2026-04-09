@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// TODO: Point this to your deployed Laravel API (same as frontend NEXT_PUBLIC_API_URL)
+// Points to your deployed Laravel API base URL (must include `/api`)
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api';
 
 export const apiClient = axios.create({
